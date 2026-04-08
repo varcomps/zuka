@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Подготовка фонограмм</title>
+    
+    <script src="https://cdn.jsdelivr.net/gh/gzuidhof/coi-serviceworker@master/coi-serviceworker.js"></script>
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+
+    <style>
+        :root { --primary-color: #4CAF50; --bg-color: #f4f7f6; --card-bg: #ffffff; --text-main: #333333; }
+        body { font-family: sans-serif; background-color: var(--bg-color); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+        .container { background-color: var(--card-bg); padding: 40px; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.1); max-width: 500px; width: 100%; text-align: center; }
+        h1 { margin-top: 0; font-size: 24px; margin-bottom: 20px;}
+        .drop-zone { border: 2px dashed #ccc; border-radius: 8px; padding: 40px 20px; cursor: pointer; transition: all 0.3s ease; background-color: #fafafa; margin-bottom: 20px; }
+        .drop-zone.dragover { border-color: var(--primary-color); background-color: #e8f5e9; }
+        .drop-zone-text { font-size: 16px; color: #777; pointer-events: none; }
+        #file-input { display: none; }
+        .format-selector { margin-bottom: 20px; text-align: left; background: #f9f9f9; padding: 15px; border-radius: 8px;}
+        .format-selector label { display: block; margin-bottom: 8px; cursor: pointer; font-size: 15px;}
+        .btn { background-color: var(--primary-color); color: white; border: none; padding: 14px 24px; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; width: 100%; }
+        .btn:disabled { background-color: #ccc; cursor: not-allowed; }
+        #status-area { margin-top: 20px; display: none; text-align: left; }
+        .status-text { font-weight: bold; color: var(--text-main); margin-bottom: 10px; font-size: 14px; text-align: center;}
+        .progress-bar { width: 100%; height: 10px; background-color: #eee; border-radius: 5px; overflow: hidden; margin-bottom: 10px;}
+        .progress-fill { height: 100%; width: 0%; background-color: var(--primary-color); transition: width 0.2s linear; }
+        #log-area { font-family: monospace; font-size: 11px; color: #333; background: #eee; padding: 10px; border-radius: 4px; height: 150px; overflow-y: auto; text-align: left; margin-top: 15px; word-wrap: break-word;}
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Подготовка фонограмм</h1>
+
+    <div id="upload-form">
+        <div class="drop-zone" id="drop-zone">
+            <span class="drop-zone-text" id="drop-text">Выбрать файл</span>
+            <input type="file" id="file-input" accept="audio/*,video/*">
+        </div>
+
+        <div class="format-selector">
+            <label><input type="radio" name="format" value="mp3" checked> MP3</label>
+            <label><input type="radio" name="format" value="wav"> WAV</label>
+        </div>
+
+        <button class="btn" id="process-btn" disabled>Старт</button>
+    </div>
+
+    <div id="status-area">
+        <div class="status-text" id="status-message">0%</div>
+        <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+        <div id="log-area">Ожидание файла...</div>
+        <button class="btn" onclick="location.reload()" style="margin-top: 15px; background-color: #777;">Сброс</button>
+    </div>
+</div>
+
+<script>
+    const { createFFmpeg, fetchFile } = FFmpeg;
+    const ffmpeg = createFFmpeg({ 
+        log: true, 
+        corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js'
+    });
+
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const processBtn = document.getElementById('process-btn');
+    const dropText = document.getElementById('drop-text');
+    const statusMessage = document.getElementById('status-message');
+    const progressFill = document.getElementById('progress-fill');
+    const logArea = document.getElementById('log-area');
+    
+    let selectedFile = null;
+
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault(); dropZone.classList.remove('dragover');
+        if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
+    });
+    dropZone.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) handleFile(e.target.files[0]);
+    });
+
+    function handleFile(file) {
+        selectedFile = file;
+        dropText.innerHTML = `<b>${file.name}</b>`;
+        processBtn.disabled = false;
+    }
+
+    // Вывод логов в окно
+    ffmpeg.setLogger(({ type, message }) => {
+        logArea.innerHTML += message + '<br>';
+        logArea.scrollTop = logArea.scrollHeight;
+    });
+
+    ffmpeg.setProgress(({ ratio }) => {
+        const percent = Math.round(ratio * 100);
+        if (percent >= 0 && percent <= 100) {
+            progressFill.style.width = percent + '%';
+            statusMessage.innerText = `${percent}%`;
+        }
+    });
+
+    processBtn.addEventListener('click', async () => {
+        if (!selectedFile) return;
+
+        document.getElementById('upload-form').style.display = 'none';
+        document.getElementById('status-area').style.display = 'block';
+
+        try {
+            if (!ffmpeg.isLoaded()) await ffmpeg.load();
+
+            const ext = selectedFile.name.split('.').pop();
+            const inputFileName = 'input.' + ext;
+            const format = document.querySelector('input[name="format"]:checked').value;
+            const outputFileName = 'output.' + format;
+
+            ffmpeg.FS('writeFile', inputFileName, await fetchFile(selectedFile));
+            
+            let cmdArgs = ['-i', inputFileName, '-af', 'loudnorm=I=-14:TP=-1.0'];
+            if (format === 'mp3') cmdArgs.push('-b:a', '320k');
+            cmdArgs.push(outputFileName);
+
+            await ffmpeg.run(...cmdArgs);
+
+            const data = ffmpeg.FS('readFile', outputFileName);
+            const mimeType = format === 'mp3' ? 'audio/mpeg' : 'audio/wav';
+            const blob = new Blob([data.buffer], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Mastered_${selectedFile.name.split('.')[0]}.${format}`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+
+            ffmpeg.FS('unlink', inputFileName);
+            ffmpeg.FS('unlink', outputFileName);
+
+            statusMessage.innerHTML = '<span style="color:green;">Готово!</span>';
+        } catch (error) {
+            console.error(error);
+            statusMessage.innerHTML = '<span style="color:red;">Ошибка. Проверьте лог.</span>';
+        }
+    });
+</script>
+</body>
+</html>
