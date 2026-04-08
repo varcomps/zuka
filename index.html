@@ -56,9 +56,9 @@
 </div>
 
 <script>
-    // ИСПРАВЛЕНА ОШИБКА ЗДЕСЬ: правильное обращение к FFmpegWASM
     const { FFmpeg } = window.FFmpegWASM;
-    const { fetchFile } = window.FFmpegUtil;
+    // ДОБАВЛЕНА ФУНКЦИЯ toBlobURL для обхода блокировок
+    const { fetchFile, toBlobURL } = window.FFmpegUtil;
     
     const ffmpeg = new FFmpeg();
     
@@ -72,10 +72,8 @@
     
     let selectedFile = null;
 
-    // Привязываем клик по зоне к вызову окна выбора файла
     dropZone.addEventListener('click', () => fileInput.click());
 
-    // Drag and drop
     dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
     dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
     dropZone.addEventListener('drop', (e) => {
@@ -115,12 +113,16 @@
         document.getElementById('status-area').style.display = 'block';
 
         try {
-            logArea.innerHTML += 'Подключение ядра...<br>';
+            logArea.innerHTML += 'Загрузка ядра (обход CORS)...<br>';
             
-            const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+            const coreURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+            const ffmpegURL = 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.6/dist/umd';
+
+            // ИСПОЛЬЗУЕМ toBlobURL: скачиваем файлы и запускаем их "изнутри" страницы
             await ffmpeg.load({
-                coreURL: `${baseURL}/ffmpeg-core.js`,
-                wasmURL: `${baseURL}/ffmpeg-core.wasm`,
+                coreURL: await toBlobURL(`${coreURL}/ffmpeg-core.js`, 'text/javascript'),
+                wasmURL: await toBlobURL(`${coreURL}/ffmpeg-core.wasm`, 'application/wasm'),
+                classWorkerURL: await toBlobURL(`${ffmpegURL}/814.ffmpeg.js`, 'text/javascript')
             });
 
             const ext = selectedFile.name.split('.').pop();
