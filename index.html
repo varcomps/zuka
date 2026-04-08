@@ -34,10 +34,10 @@
     <h1>Подготовка фонограмм</h1>
 
     <div id="upload-form">
-        <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
+        <div class="drop-zone" id="drop-zone">
             <span class="drop-zone-text" id="drop-text">Выбрать файл</span>
-            <input type="file" id="file-input" accept="audio/*,video/*">
         </div>
+        <input type="file" id="file-input" accept="audio/*,video/*">
 
         <div class="format-selector">
             <label><input type="radio" name="format" value="mp3" checked> MP3</label>
@@ -56,7 +56,8 @@
 </div>
 
 <script>
-    const { FFmpeg } = window.FFmpeg;
+    // ИСПРАВЛЕНА ОШИБКА ЗДЕСЬ: правильное обращение к FFmpegWASM
+    const { FFmpeg } = window.FFmpegWASM;
     const { fetchFile } = window.FFmpegUtil;
     
     const ffmpeg = new FFmpeg();
@@ -70,6 +71,9 @@
     const dropZone = document.getElementById('drop-zone');
     
     let selectedFile = null;
+
+    // Привязываем клик по зоне к вызову окна выбора файла
+    dropZone.addEventListener('click', () => fileInput.click());
 
     // Drag and drop
     dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
@@ -113,8 +117,7 @@
         try {
             logArea.innerHTML += 'Подключение ядра...<br>';
             
-            // Новая загрузка без SharedArrayBuffer
-            const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.4/dist/umd';
+            const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
             await ffmpeg.load({
                 coreURL: `${baseURL}/ffmpeg-core.js`,
                 wasmURL: `${baseURL}/ffmpeg-core.wasm`,
